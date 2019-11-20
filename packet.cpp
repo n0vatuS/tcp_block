@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <iostream>
+
 #include "packet.h"
 #include "utils.h"
 using namespace std;
@@ -25,7 +26,7 @@ void sendPacket(pcap_t * handle, const u_char * pkt_data, int pkt_len, DIR dir, 
 
     ETHER * eth_hdr = (ETHER *)packet;
     IP * ip_hdr = (IP *)packet + ETHER_HDR_LEN;
-    TCP * tcp_hdr = (TCP *)(packet + ETHER_HDR_LEN + ((ip_hdr->iph_ihl) << 2));
+    TCP * tcp_hdr = (TCP *)(packet + ETHER_HDR_LEN + ip_hdr->iph_ihl * 4);
     if(flag == RST)
     	tcp_hdr->tcph_flags |= flag;
     else if(flag == FIN)
@@ -33,30 +34,34 @@ void sendPacket(pcap_t * handle, const u_char * pkt_data, int pkt_len, DIR dir, 
 
     if(dir == BW) {
 	swap(eth_hdr->src_addr, eth_hdr->dst_addr, HW_ADDR_LEN); // swap mac address
-	swap((uint8_t *)ip_hdr->iph_src, (uint8_t *)ip_hdr->iph_dst, IP_ADDR_LEN); // swap ip address
-	swap((uint8_t *)tcp_hdr->tcph_srcport, (uint8_t *)tcp_hdr->tcph_dstport, 2); // swap port
+	swap(ip_hdr->iph_src, ip_hdr->iph_dst, IP_ADDR_LEN); // swap ip address
+	swap((uint8_t *)&tcp_hdr->tcph_srcport, (uint8_t *)&tcp_hdr->tcph_dstport, 2); // swap port
     }
 
-    tcp_hdr->tcph_chksum = htons(tcpChecksum(ip_hdr, tcp_hdr));
+    //tcp_hdr->tcph_chksum = htons(tcpChecksum(ip_hdr, tcp_hdr));
 
     int res = pcap_sendpacket(handle, (const u_char*)packet, pkt_len);
 
-    cout << " res=" << res << endl;
+    if(res == 0)
+	printf("[+] Send packet success!\n");
+    else
+	printf("[-] Send packet fail!\n");
 }
 
 void blockPacket(pcap_t * handle, struct pcap_pkthdr * header, const u_char * pkt_data, char * host){
     ETHER * eth_hdr = (ETHER *)pkt_data;
     IP * ip_hdr = (IP *)(pkt_data + ETHER_HDR_LEN);
-    TCP * tcp_hdr = (TCP *)(pkt_data + ETHER_HDR_LEN + ((ip_hdr->iph_ihl) << 2));
-    printf("%02x, %02x %02x %02x\n",ip_hdr->iph_ihl,eth_hdr->eth_type,ip_hdr->iph_protocol,tcp_hdr->tcph_offset);
+    TCP * tcp_hdr = (TCP *)(pkt_data + ETHER_HDR_LEN + ip_hdr->iph_ihl * 4);
+
     if (ntohs(eth_hdr->eth_type) != TYPE_IPV4||
 	ip_hdr->iph_protocol != PTC_TCP||
 	tcp_hdr->tcph_flags & (RST | FIN))
         return;
-    int tcp_len = 14 + (ip_hdr->iph_ihl) << 2 + (tcp_hdr->tcph_offset) << 2;
-    printf("%02x %02x\n", ip_hdr->iph_ihl, tcp_hdr->tcph_offset);					
-    if(!(compare_method(pkt_data + tcp_len) && check_host(pkt_data + tcp_len, host))) return;
+
+    int tcp_len = 14 + (ip_hdr->iph_ihl) * 4 + (tcp_hdr->tcph_offset) *  4;
+
+    if(tcp_len >= header->caplen || !(compare_method(pkt_data + tcp_len) && check_host(pkt_data + tcp_len, host))) return;
 
     sendPacket(handle, pkt_data, header->caplen, FW, RST);
-    sendPacket(handle, pkt_data, header->caplen, BW, FIN);
+    sendPacket(handle, pkt_data, header->caplen, BW, RST);
 }
