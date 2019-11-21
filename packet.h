@@ -48,6 +48,14 @@ typedef struct tcp_hdr {
     uint16_t tcph_urgptr;
 } TCP;
 
+typedef struct pseudo_hdr {
+    uint8_t ip_src[IP_ADDR_LEN];
+    uint8_t ip_dst[IP_ADDR_LEN];
+    uint8_t reserved;
+    uint8_t protocol;
+    uint16_t tcp_len;
+} pseudo_hdr;
+
 enum DIR {
     FW, BW
 };
